@@ -1,182 +1,106 @@
 # video-add-agent
 
-A UiPath LangGraph coded agent that converts a video walkthrough into a fully-formed **Agent Design Document (ADD)** — ready for review and export in the Agentify Professional Services app.
+A Python LangGraph agent that processes **video walkthroughs** into Agent Design Documents (ADDs) for the Agentify Coded App. Lives as a standalone repo so it can be published to UiPath Orchestrator as a `uipath-langgraph` process; the senior's TS app dispatches it directly.
 
-## What it does
+The senior's TS app (https://github.com/keyuluipath/AgentifyProfessionalServicesCodedApp) handles BRD/PDF/transcript inputs in-browser. **Video inputs are handled here.**
 
-1. Downloads the video artifact from the UiPath Storage Bucket.
-2. Transcribes audio with **local Whisper** (no external API key).
-3. Extracts key frames and uploads them as screenshots.
-4. Sends transcript + frames to a **vision-capable model via UiPath AI Fabric** (GPT-4o) to extract structured process context.
-5. Generates every ADD section driven by the **active template definition** — two parallel LLM chunks via UiPath AI Fabric (Claude).
-6. Validates markdown tables, Mermaid diagrams, and per-section character caps.
-7. Writes `content.json` and `content.md` to the bucket and sets the stage to `awaiting_approval`.
+**Production dispatch (Phase 3):** the senior's TS app dispatches the published `video-add-agent` Orchestrator process directly via `Processes.start` (see his repo's `src/uipath/processDispatch.ts`). See [PUBLISH.md](PUBLISH.md) for how this agent is published.
 
-All LLM calls go through **UiPath AI Fabric** (no direct OpenAI/Anthropic API keys). All file I/O uses **UiPath Storage Bucket APIs**.
+**Fallback:** the polling daemon at [scripts/poll_daemon.py](scripts/poll_daemon.py) is kept in this repo as a dev / Orchestrator-down fallback. You shouldn't need to run it for normal operation.
 
----
+## Why a separate Python project?
 
-## Pipeline
+- **Whisper** (local audio transcription), **ffmpeg** (frame extraction), and **imagehash** (perceptual-hash dedup) all rely on the Python ecosystem. Porting them to TypeScript would be a multi-week rewrite for no functional gain.
+- The senior's TS app is browser-only and can't run Python directly. Publishing this agent to UiPath as a process gives the TS app a clean dispatch target.
+- All data stays inside UiPath: bucket reads/writes, Data Fabric entity updates, and LLM calls all go to the same UiPath cloud the senior's app uses.
+
+## Pipeline (11 LangGraph nodes)
 
 ```
 validate_artifact
       ↓
-  transcribe          ← local Whisper + ffmpeg frames
-      ↓
-extract_context       ← GPT-4o vision via AI Fabric
-      ↓
-generate_sections     ← 2× parallel Claude via AI Fabric (template-driven)
-      ↓
-validate_output       ← Mermaid / pipe-table / char-cap enforcement
-      ↓
- persist_output        ← upload content.json + content.md, update stage row
-      ↓
-     END
+transcribe_raw                    ← local Whisper
+      ├──────────────────────────────┐
+      ▼                              ▼
+filter_transcript          screenshot_pipeline   ← ffmpeg dump + pHash gate
+      │                              │              + cluster + dedup + bucket upload
+      └────────────┬─────────────────┘
+                   ▼
+              align_steps  ◄────────┐
+                   ▼                 │ (gaps & retries left)
+            coverage_check ──────────┘
+                   ▼
+          generate_sections  ◄──────┐
+                   ▼                 │ (validation_errors & retries left)
+           validate_output ──────────┘
+                   ▼
+           persist_output            ← content.json + content.md + stage update
+                   ▼
+                  END
 
-Any node failure → handle_error → stage set to rejected → END
+Any node setting state.error → handle_error → END
 ```
 
----
+All LLM calls go through **UiPath AI Fabric LLM Gateway** (Claude Opus 4.7 by default). No direct OpenAI/Anthropic API keys.
 
-## Project structure
+## How the senior's TS app dispatches video jobs
 
-```
-video_add_agent/
-├── plugin_manifest.json          # TypeScript interop: name, version, schemas
-├── langgraph.json                # UiPath runtime entry: graph.py:graph
-├── pyproject.toml
-├── video_add_agent/
-│   ├── entry.py                  # run_video_agent(input) -> dict
-│   ├── graph.py                  # StateGraph compilation
-│   ├── state.py                  # VideoAgentState TypedDict
-│   ├── nodes/
-│   │   ├── validate_artifact.py
-│   │   ├── transcribe.py
-│   │   ├── extract_context.py
-│   │   ├── generate_sections.py
-│   │   ├── validate_output.py
-│   │   ├── persist_output.py
-│   │   └── handle_error.py
-│   ├── models/
-│   │   ├── input.py              # AgentInput, VideoArtifact, BucketContext, ActiveAddTemplate
-│   │   ├── template.py           # TemplateDefinition, TemplateBlock, BlockKind
-│   │   └── output.py             # AgentOutput, AgentFailure
-│   └── utils/
-│       ├── bucket.py             # Orchestrator REST pre-signed URI helpers
-│       ├── entities.py           # Data Fabric stage row update
-│       ├── llm.py                # UiPathChat wrappers with tenacity retry
-│       ├── media.py              # ffmpeg + Whisper helpers
-│       ├── markdown.py           # Table/Mermaid validation, section stitching
-│       └── prompt.py             # Per-block prompt builders
-└── tests/
-    ├── conftest.py
-    ├── test_validate_artifact.py
-    ├── test_transcribe.py
-    ├── test_extract_context.py
-    ├── test_generate_sections.py
-    ├── test_validate_output.py
-    ├── test_persist_output.py
-    └── test_handle_error.py
+When a user uploads a video via the senior's app's upload form:
+
+1. The senior's TS app creates `AgentifyProject` (`inputType='video'`), `AgentifyArtifact` (`kind='video'`), and `AgentifyStage` (`kind='add'`, `status='running'`) rows in Data Fabric.
+2. The senior's `firstStageKickoff` (in his TS app's `src/uipath/dataAdapter.ts`) detects `inputType='video'`, **skips** the in-browser `runStage`, and instead calls `dispatchVideoAgent` (his `src/uipath/processDispatch.ts`) which kicks off the published `video-add-agent` Orchestrator process via `Processes.start`. The stage row is left at `status='running'` for the Orchestrator job to pick up.
+3. The published agent (this codebase, deployed to UiPath via `uipath publish` — see [PUBLISH.md](PUBLISH.md)) processes the video: Whisper → filter → screenshots → LLM → validate. It writes `content.json` + `content.md` to the bucket, uploads ~16 screenshots to `/projects/{projectId}/raw/image-{N}/screenshot-{NN}.jpg`, and updates the row to `status='awaiting_approval'`.
+4. The senior's review screen's existing 4-second poll picks up the row transition and renders content from the bucket.
+
+**Fallback path:** when the daemon is run instead (Orchestrator unavailable or local development), it polls `AgentifyStage` every 10s for `running` rows with a video artifact and runs `run_video_agent(input_dict)` in-process. Identical downstream effect.
+
+## Setup (first-time only)
+
+```sh
+cd video_add_agent
+python -m venv .venv
+.venv/Scripts/pip install -e .
+cp .env.example .env
+# edit .env: set UIPATH_URL and UIPATH_ACCESS_TOKEN to match the senior's tenant
 ```
 
----
+`ffmpeg` must be on PATH. On Windows: `winget install Gyan.FFmpeg` or download from https://ffmpeg.org and add to PATH.
 
-## Requirements
+## Running the daemon (fallback path only)
 
-| Requirement | Notes |
-|---|---|
-| Python ≥ 3.11 | |
-| `ffmpeg` on PATH | Audio/frame extraction — install via `apt-get install ffmpeg` or robot dependency |
-| UiPath Storage Bucket (Orchestrator) | `UIPATH_URL` + `UIPATH_ACCESS_TOKEN` env vars |
-| UiPath Data Fabric | Same credentials — used for stage row updates |
-| UiPath AI Fabric | GPT-4o (vision) + Claude (section generation) — billed as Agent Units, no direct API keys |
+For normal production use the senior's TS app dispatches the published Orchestrator process — you should not need to run the daemon. Run it only when Orchestrator is unavailable or you're iterating on the agent locally without re-publishing each time.
 
----
-
-## Environment variables
-
-```bash
-UIPATH_URL=https://cloud.uipath.com/{org}/{tenant}
-UIPATH_ACCESS_TOKEN=<robot_access_token>
+```sh
+cd video_add_agent
+.venv/Scripts/python.exe scripts/poll_daemon.py
 ```
 
-Copy `.env.example` to `.env` and fill in your values for local development.
+Leave the terminal open. The daemon stays alive until `Ctrl+C`. See [scripts/poll_daemon.md](scripts/poll_daemon.md) for env vars, single-instance constraint, log lines, and troubleshooting.
 
----
+## One-shot manual run (for development)
 
-## Local development
-
-```bash
-# Install dependencies
-pip install -e ".[dev]"
-
-# Run tests (all nodes mocked — no external calls)
-pytest tests/ -v
-
-# Run with a local input file
-python -c "
-from video_add_agent.entry import run_video_agent
-import json, pathlib
-result = run_video_agent(json.loads(pathlib.Path('tests/fixtures/sample_input.json').read_text()))
-print(json.dumps(result, indent=2))
-"
+```sh
+.venv/Scripts/python.exe scripts/setup_run.py     # uploads a local test video + writes a fixture
+.venv/Scripts/python.exe scripts/run_local.py     # runs the agent against the live tenant
+.venv/Scripts/python.exe scripts/run_local_dry.py # runs the agent end-to-end with bucket + entities mocked
 ```
 
----
+## Tests
 
-## UiPath packaging and deployment
-
-```bash
-# Initialise UiPath project metadata
-uipath init
-
-# Pack as .nupkg
-uipath pack
-
-# Publish to Orchestrator
-uipath publish
+```sh
+.venv/Scripts/pytest.exe tests/ -q
 ```
 
-Once deployed, the TypeScript layer invokes the agent via the Orchestrator `StartJobs` API:
+66 tests covering every node, routing function, template parsing, and stitching logic.
 
-```typescript
-const job = await orchestratorClient.jobs.start({
-  processName: "video-add-agent",
-  inputArguments: JSON.stringify(agentInput),  // matches plugin_manifest.json inputSchema
-});
-const result = await pollJobResult(job.id);    // matches plugin_manifest.json outputSchema
-```
+## Trust boundary
 
----
+| Data | Stays in | Transits through user's machine? |
+|---|---|---|
+| Video bytes | UiPath bucket | yes — briefly, while ffmpeg + Whisper run |
+| Audio extracted from video | local temp file → deleted | yes — briefly |
+| Transcript, frames, screenshots, ADD content | UiPath bucket | no — generated locally then uploaded |
+| LLM calls | UiPath AI Fabric Gateway | no — never to OpenAI/Anthropic directly |
+| Entity updates | UiPath Data Fabric | no |
 
-## Output paths (bucket)
-
-| File | Path |
-|---|---|
-| ADD sections JSON | `projects/{projectId}/stages/pdd/output/content.json` |
-| ADD stitched markdown | `projects/{projectId}/stages/pdd/output/content.md` |
-| Transcript | `projects/{projectId}/stages/pdd/output/transcript.txt` |
-| Frames / screenshots | `projects/{projectId}/raw/image-{N}/screenshot-{NN}.jpg` |
-
----
-
-## Markdown requirements enforced
-
-- **Tables** — valid markdown pipe tables (`| col | col |` + `|---|---|` separator).
-- **Process maps** — fenced ` ```mermaid\nflowchart TD ``` ` only. `flowchart LR` is automatically converted to `TD`.
-- **Screenshot refs** — `![alt](image://{projectId}/screenshot-NN.jpg)` — only in keystroke/steps sections.
-- **Section cap** — 2 000 characters max per section.
-- **No invented data** — missing values use `> **Gap:** To be confirmed with SME`.
-
----
-
-## Acceptance criteria
-
-- Uploading a video creates a project and ADD stage in Agentify.
-- The agent writes `content.json` and `content.md` to the correct bucket paths.
-- The ADD stage status becomes `awaiting_approval`.
-- The existing ADD review screen displays all generated sections.
-- Users can edit sections and autosave normally.
-- Word preview/export works using the active ADD template.
-- Screenshot references render in review and export.
-- ASDD, Test Cases, and Code Gen can continue after ADD approval.
+**Phase 3 (deployed path)**: this agent is published to UiPath's `uipath-langgraph` runtime via `uipath publish` (see [PUBLISH.md](PUBLISH.md)) and dispatched from the senior's TS app. Video and audio bytes stay in UiPath cloud — no laptop transit, no daemon process. The fallback daemon's local-machine transit only applies when the daemon is run.

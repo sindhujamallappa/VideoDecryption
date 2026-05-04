@@ -1,6 +1,15 @@
 # `poll_daemon.py` — operations guide
 
-A long-running Python script that polls the senior's Agentify Coded App tenant for new video ADD jobs and runs `video_add_agent` against them. Lets the senior's app trigger us from the UI without any code changes on the senior's side.
+> **Status (Phase 3, post-publish):** production dispatches via the senior's TS app calling the published `video-add-agent@1.0.0` Orchestrator process (see [../PUBLISH.md](../PUBLISH.md)). **You do not need to run this daemon for normal operation.**
+>
+> Run the daemon only when:
+> - Phase 3 publish is broken / Orchestrator is unavailable
+> - You're developing or debugging changes to the agent locally before re-publishing
+> - The published process needs to be bypassed for any other reason
+>
+> **Don't run the daemon and the published process against the same tenant at the same time** — they'd race on the same `running` rows.
+
+A long-running Python script that polls the Agentify Coded App tenant for new video ADD jobs and runs `video_add_agent` against them. The senior's TS app's `firstStageKickoff` (in his repo's `src/uipath/dataAdapter.ts`) dispatches the published Orchestrator process by default; if you bypass that (or run the daemon as a fallback), it picks up rows where `status='running'` and writes the final ADD content.
 
 ## How it works
 
@@ -17,12 +26,25 @@ A long-running Python script that polls the senior's Agentify Coded App tenant f
 
 Same as `scripts/run_local.py`. All UiPath data stays in UiPath cloud — only video/audio bytes transit briefly through the user's machine for Whisper + ffmpeg processing. No new external endpoint, no third-party API.
 
+## Setup (first time only)
+
+```sh
+cd video_add_agent
+python -m venv .venv
+.venv/Scripts/pip install -e .
+cp .env.example .env
+# edit .env: set UIPATH_URL and UIPATH_ACCESS_TOKEN to match the tenant
+```
+
+`ffmpeg` must be on PATH.
+
 ## How to start
 
-From the workspace root:
+From the repo root:
 
-```
-video_add_agent/.venv/Scripts/python.exe video_add_agent/scripts/poll_daemon.py
+```sh
+cd video_add_agent
+.venv/Scripts/python.exe scripts/poll_daemon.py
 ```
 
 Leave the terminal open. The daemon stays alive until you press `Ctrl+C` or close the terminal.
@@ -43,8 +65,8 @@ Read from `video_add_agent/.env` automatically:
 
 For development you can override individual values inline:
 
-```
-POLL_INTERVAL_S=3 video_add_agent/.venv/Scripts/python.exe video_add_agent/scripts/poll_daemon.py
+```sh
+POLL_INTERVAL_S=3 .venv/Scripts/python.exe scripts/poll_daemon.py
 ```
 
 ## Single-instance constraint
@@ -63,7 +85,7 @@ del %USERPROFILE%\.video_add_agent_daemon.lock   # cmd
 Stdout. Format: `YYYY-MM-DD HH:MM:SS,sss [LEVEL] logger_name: message`. Pipe to a file or tee:
 
 ```
-video_add_agent/.venv/Scripts/python.exe video_add_agent/scripts/poll_daemon.py 2>&1 | tee /tmp/daemon.log
+.venv/Scripts/python.exe scripts/poll_daemon.py 2>&1 | tee /tmp/daemon.log
 ```
 
 Key log lines to watch for:
@@ -102,7 +124,3 @@ Press `Ctrl+C` in the terminal. The daemon catches `SIGINT`/`SIGTERM`, releases 
 - It does NOT modify projects, templates, or any non-`AgentifyStage` entity rows except the in-flight stage row it's processing.
 - It does NOT process non-video jobs (those flow through the senior's in-browser `add` stage as before).
 - It does NOT auto-restart the senior's UI or trigger downstream stages — once the row is `awaiting_approval`, the senior's app's existing approval flow takes over.
-
-## Future direction (Phase 3, deferred)
-
-Long-term we'd deploy `video_add_agent` as a UiPath Orchestrator process (it's already shaped for this — see `langgraph.json` + `plugin_manifest.json`). The senior's app would dispatch via the `@uipath/uipath-typescript` SDK and the daemon would no longer be needed. For now the daemon is the simplest path to "trigger from UI" without modifying the senior's code.

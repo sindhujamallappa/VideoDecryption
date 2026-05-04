@@ -1,0 +1,35 @@
+{
+  "name": "video-add-agent-runtime-probe",
+  "version": "0.1.0",
+  "runtime": "uipath-langgraph",
+  "entrypoint": "probe.entry:run_probe",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["bucketContext"],
+    "properties": {
+      "bucketContext": {
+        "type": "object",
+        "required": ["bucketId", "folderId"],
+        "properties": {
+          "bucketId": { "type": "integer" },
+          "folderId": { "type": "integer" }
+        }
+      },
+      "label": { "type": "string", "description": "Optional run label, surfaced in the report filename" }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["success"],
+    "properties": {
+      "success": { "type": "boolean" },
+      "reportPath": { "type": "string" },
+      "ffmpegOk": { "type": "boolean" },
+      "whisperOk": { "type": "boolean" },
+      "error": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "video-add-agent-runtime-probe"
+version = "0.1.0"
+description = "Throwaway probe: confirms the UiPath uipath-langgraph runtime can host ffmpeg + Whisper before publishing the real video-add-agent"
+requires-python = ">=3.11"
+dependencies = [
+    "uipath-langchain>=0.10.10",
+    "langgraph>=1.1.8",
+    "uipath>=2.10.58",
+    "openai-whisper>=20231117",
+    "ffmpeg-python>=0.2.0",
+    "httpx>=0.24.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["probe"]

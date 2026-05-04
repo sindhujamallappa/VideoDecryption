@@ -1,0 +1,7 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/video_add_agent/.venv/Scripts/python.exe",
+  "python.terminal.activateEnvironment": true,
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["video_add_agent/tests"],
+  "python.analysis.extraPaths": ["${workspaceFolder}/video_add_agent"]
+}

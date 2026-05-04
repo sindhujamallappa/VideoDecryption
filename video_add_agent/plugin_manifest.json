@@ -1,0 +1,72 @@
+{
+  "name": "video-add-agent",
+  "version": "1.0.0",
+  "runtime": "uipath-langgraph",
+  "entrypoint": "video_add_agent.entry:run_video_agent",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": [
+      "projectId",
+      "stageId",
+      "projectName",
+      "inputType",
+      "sourceFilename",
+      "videoArtifact",
+      "bucketContext",
+      "activeAddTemplate"
+    ],
+    "properties": {
+      "projectId": { "type": "string" },
+      "stageId": { "type": "string" },
+      "projectName": { "type": "string" },
+      "inputType": { "type": "string", "enum": ["video"] },
+      "sourceFilename": { "type": "string" },
+      "videoArtifact": {
+        "type": "object",
+        "required": ["id", "kind", "bucketPath", "mimeType", "sizeBytes"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["video"] },
+          "bucketPath": { "type": "string" },
+          "mimeType": { "type": "string" },
+          "sizeBytes": { "type": "integer" }
+        }
+      },
+      "bucketContext": {
+        "type": "object",
+        "required": ["bucketId", "folderId"],
+        "properties": {
+          "bucketId": { "type": "integer" },
+          "folderId": { "type": "integer" }
+        }
+      },
+      "activeAddTemplate": {
+        "type": "object",
+        "required": ["templateId", "promptVersion", "definition"],
+        "properties": {
+          "templateId": { "type": "string" },
+          "promptVersion": { "type": "string" },
+          "definition": { "type": "string", "description": "JSON string of TemplateDefinition" }
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "required": ["success", "projectId", "stageId"],
+    "properties": {
+      "success": { "type": "boolean" },
+      "projectId": { "type": "string" },
+      "stageId": { "type": "string" },
+      "contentJsonPath": { "type": "string" },
+      "contentMdPath": { "type": "string" },
+      "screenshotCount": { "type": "integer" },
+      "transcriptPath": { "type": "string" },
+      "summary": { "type": "string" },
+      "error": { "type": "string" }
+    }
+  }
+}

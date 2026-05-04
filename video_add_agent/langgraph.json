@@ -1,0 +1,5 @@
+{
+  "graphs": {
+    "agent": "./video_add_agent/graph.py:graph"
+  }
+}

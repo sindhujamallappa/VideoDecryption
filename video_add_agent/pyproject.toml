@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "video-add-agent"
+version = "1.0.0"
+description = "UiPath LangGraph coded agent: video walkthrough → ADD (Agent Design Document)"
+requires-python = ">=3.11"
+dependencies = [
+    "uipath-langchain>=0.10.10",
+    "langgraph>=1.1.8",
+    "langchain>=1.0.0",
+    "langchain-core>=1.2.11",
+    "uipath>=2.10.58",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "tenacity>=8.0",
+    "openai-whisper>=20231117",
+    "ffmpeg-python>=0.2.0",
+    "pillow>=10.0",
+    "imagehash>=4.3",
+    "httpx>=0.24.0",
+    "python-dotenv>=0.21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-mock>=3.0",
+    "mypy>=1.0",
+    "ruff>=0.9.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["video_add_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true

@@ -7,12 +7,22 @@ Section keys are driven entirely by the template — no hardcoded list.
 Reads `state.aligned_steps` and `state.screenshots` for source context.
 On retry from validate_output, prepends `state.validation_errors` as
 constraint hints to the chunk prompts.
+
+**Fix 2 — Anti-hallucination guardrails:**
+- Guardrail 1: minimum grounding threshold check before any LLM call.
+  If transcript_retention < FLOOR OR analyzed_screenshots < MIN_SHOTS,
+  short-circuit with `insufficient_grounding` status. The OR (vs. AND
+  in the original prompt) is deliberate — thin transcript + many good
+  screenshots is still groundable, and vice versa.
+- Guardrail 2: `projectName` is NOT passed to the LLM (see prompt.py).
+- Guardrail 3: citation requirement baked into the system prompt.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import os
 from typing import Any
 
 from video_add_agent.models.input import ActiveAddTemplate
@@ -31,10 +41,72 @@ logger = logging.getLogger(__name__)
 
 _GENERATION_MODEL = "anthropic.claude-opus-4-7"
 
+# Guardrail 1 thresholds (env-tunable). OR semantics: trip if EITHER
+# transcript retention or analyzed-screenshot count falls below floor.
+_MIN_TRANSCRIPT_RETENTION = float(
+    os.environ.get("GENERATE_MIN_TRANSCRIPT_RETENTION", "0.15")
+)
+_MIN_ANALYZED_SCREENSHOTS = int(
+    os.environ.get("GENERATE_MIN_ANALYZED_SCREENSHOTS", "3")
+)
+
+
+def _check_grounding(state: VideoAgentState) -> dict | None:
+    """Guardrail 1: short-circuit if grounding is too thin.
+
+    Returns an `insufficient_grounding` payload if the gate trips,
+    otherwise None (continue normally). The transcript_mode is also
+    treated as a strong signal: 'unfiltered' means filter_transcript
+    fell back to passing the whole thing through, so retention is
+    artificially 100% but actual relevance is unknown — we still treat
+    that as low-grounding for gating purposes.
+    """
+    retention = state.transcript_retention_pct
+    if state.transcript_mode == "unfiltered":
+        # Fallback mode = filter couldn't classify; don't trust the
+        # 1.0 retention number, treat as zero for the gate.
+        retention = 0.0
+
+    analyzed_shots = len(state.screenshots)
+
+    retention_low = retention < _MIN_TRANSCRIPT_RETENTION
+    shots_low = analyzed_shots < _MIN_ANALYZED_SCREENSHOTS
+
+    if retention_low or shots_low:
+        msg = (
+            "Cannot generate ADD — not enough source material. "
+            f"Transcript retention: {retention * 100:.1f}% "
+            f"(mode={state.transcript_mode}, threshold={_MIN_TRANSCRIPT_RETENTION * 100:.0f}%). "
+            f"Analyzed screenshots: {analyzed_shots} "
+            f"(threshold={_MIN_ANALYZED_SCREENSHOTS}). "
+            "Need either a walkthrough video with narration or a meeting "
+            "recording with substantive process discussion content."
+        )
+        logger.warning("generate_sections: insufficient grounding — %s", msg)
+        # Populate sections with explicit gap markers for every fallback
+        # key so persist_output still has something coherent to ship and
+        # the senior's review screen surfaces the failure cleanly rather
+        # than rendering blanks.
+        gap_payload = {
+            key: f"> **Gap:** {msg}" for key in FALLBACK_SECTION_KEYS
+        }
+        return {
+            "sections": gap_payload,
+            "validation_errors": [],
+            "insufficient_grounding": True,
+            "insufficient_grounding_reason": msg,
+        }
+    return None
+
 
 def generate_sections_node(state: VideoAgentState) -> dict:
     logger.info("generate_sections: start project_id=%s", state.project_id)
     try:
+        # Guardrail 1 — grounding gate.
+        gate = _check_grounding(state)
+        if gate is not None:
+            return gate
+
         result = asyncio.run(_generate(state))
         # Clear validation_errors so validate_output starts fresh.
         return {**result, "validation_errors": []}
@@ -72,9 +144,10 @@ async def _generate(state: VideoAgentState) -> dict:
             len(state.validation_errors),
         )
 
+    # NOTE: project_name is deliberately omitted from ctx (Fix 2 /
+    # Guardrail 2). The prompt builder no longer accepts it.
     ctx: dict[str, Any] = {
         "project_id": state.project_id,
-        "project_name": state.project_name,
         "aligned_steps": state.aligned_steps,
         "screenshots": state.screenshots,
         "validation_errors": list(state.validation_errors),

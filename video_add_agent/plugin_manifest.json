@@ -1,6 +1,6 @@
 {
   "name": "video-add-agent",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "runtime": "uipath-langgraph",
   "entrypoint": "video_add_agent.entry:run_video_agent",
   "inputSchema": {

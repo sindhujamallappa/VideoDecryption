@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "video-add-agent"
-version = "1.0.0"
+version = "1.1.0"
 description = "UiPath LangGraph coded agent: video walkthrough → ADD (Agent Design Document)"
 requires-python = ">=3.11"
 authors = [{ name = "@sindhujamallappa" }]

@@ -75,8 +75,10 @@ def test_route_after_coverage_gives_up_at_max_retries():
 
 
 def test_route_after_validation_continues_when_no_errors():
+    """After Fix 5 the post-validation hop is score_quality (not directly
+    persist_output); score_quality then forwards to persist_output."""
     s = _state(validation_errors=[])
-    assert _route_after_validation(s) == "persist_output"
+    assert _route_after_validation(s) == "score_quality"
 
 
 def test_route_after_validation_retries_when_errors_and_budget_left():
@@ -88,11 +90,13 @@ def test_route_after_validation_retries_when_errors_and_budget_left():
 
 
 def test_route_after_validation_gives_up_at_max_retries():
+    """At max retries we still continue forward, but to score_quality
+    (not persist_output)."""
     s = _state(
         validation_errors=["bad mermaid"],
         retry_counts={"generate_sections": MAX_RETRIES + 1},
     )
-    assert _route_after_validation(s) == "persist_output"
+    assert _route_after_validation(s) == "score_quality"
 
 
 def test_max_retries_default_value():

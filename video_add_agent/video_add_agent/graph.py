@@ -44,6 +44,7 @@ from video_add_agent.nodes.filter_transcript import filter_transcript_node
 from video_add_agent.nodes.generate_sections import generate_sections_node
 from video_add_agent.nodes.handle_error import handle_error_node
 from video_add_agent.nodes.persist_output import persist_output_node
+from video_add_agent.nodes.score_quality import score_quality_node
 from video_add_agent.nodes.transcribe_raw import transcribe_raw_node
 from video_add_agent.nodes.validate_artifact import validate_artifact_node
 from video_add_agent.nodes.validate_output import validate_output_node
@@ -103,7 +104,10 @@ def _route_after_validation(state: VideoAgentState) -> str:
         and state.retry_counts.get("generate_sections", 0) <= MAX_RETRIES
     ):
         return "generate_sections"
-    return "persist_output"
+    # Validation succeeded → run quality scoring before persist so the
+    # report can be embedded into content.md and surfaced in the senior's
+    # review screen.
+    return "score_quality"
 
 
 _b = StateGraph(VideoAgentState)
@@ -116,6 +120,7 @@ _b.add_node("align_steps", align_steps_node)
 _b.add_node("coverage_check", coverage_check_node)
 _b.add_node("generate_sections", generate_sections_node)
 _b.add_node("validate_output", validate_output_node)
+_b.add_node("score_quality", score_quality_node)
 _b.add_node("persist_output", persist_output_node)
 _b.add_node("handle_error", handle_error_node)
 
@@ -152,8 +157,12 @@ _b.add_conditional_edges("generate_sections", _route_or_error("validate_output")
 _b.add_conditional_edges(
     "validate_output",
     _route_after_validation,
-    path_map=["generate_sections", "persist_output", "handle_error"],
+    path_map=["generate_sections", "score_quality", "handle_error"],
 )
+# score_quality → persist_output (or handle_error on error). It's a pure
+# read-only scorer so it has no failure modes of its own that would set
+# state.error, but the route helper still respects upstream error.
+_b.add_conditional_edges("score_quality", _route_or_error("persist_output"))
 
 # Tail
 _b.add_conditional_edges("persist_output", _route_or_error(END))

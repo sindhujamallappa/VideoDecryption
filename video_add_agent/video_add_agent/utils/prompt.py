@@ -2,6 +2,14 @@
 
 All section content is derived exclusively from the video transcript and
 extracted screenshots — never from generic templates or invented data.
+
+**Anti-hallucination policy (Fix 2):** `projectName` is intentionally NOT
+passed into any LLM prompt. The PLDT SIPOC failure showed the LLM uses
+projectName as a confabulation seed when transcript and screenshot
+grounding is thin (e.g. invented an entire "UiBank" application from a
+project named UiBank_videoTesting_05062026 even though the source video
+discussed an unrelated process). projectName is used only post-generation
+for filename + document title insertion.
 """
 from __future__ import annotations
 
@@ -45,12 +53,23 @@ _GLOBAL_RULES = """\
 ## Non-negotiable Rules
 - NEVER invent numbers, percentages, SLAs, timings, counts, thresholds, or retry counts.
 - NEVER import facts from generic templates or training knowledge. Every claim must appear in the source material.
+- NEVER infer application names, system names, role names, or process steps from any external context. The source material is the ONLY ground truth.
 - For missing data: `> **Gap:** To be confirmed with SME`
 - Tables: valid markdown pipe tables only — header row, `|---|` separator, data rows.
 - Process maps: ```mermaid\\nflowchart TD  (no image:// URLs inside Mermaid, no emojis in labels)
 - Screenshot references: only in keystrokes/steps sections — ![alt](image://{projectId}/filename)
 - Max 2 000 characters per section value.
-- Return ONLY the JSON object — no markdown fences around it, no extra keys, no commentary."""
+- Return ONLY the JSON object — no markdown fences around it, no extra keys, no commentary.
+
+## Citation Requirement (grounding enforcement)
+For every factual claim in your output (application names, process steps,
+roles, data flows, system interactions, KPIs), cite at least one source:
+  - Transcript timestamp range: `[MM:SS–MM:SS]` (e.g. `[03:15–03:42]`)
+  - Or a screenshot reference: `screenshot-NN.jpg` (e.g. `screenshot-03.jpg`)
+If you cannot cite a source for a claim, write
+`> **Gap:** To be confirmed with SME` instead. Do NOT infer or guess
+application names, process steps, or system names from any other context.
+"""
 
 
 def _format_timestamp(seconds: float) -> str:
@@ -61,12 +80,20 @@ def _format_timestamp(seconds: float) -> str:
 
 def build_chunk_system_prompt(
     blocks: list[tuple["TemplateSection", "TemplateBlock"]],
-    project_name: str,
     aligned_steps: list["AlignedStep"],
     screenshots: list["Screenshot"],
     project_id: str = "",
     validation_errors: list[str] | None = None,
 ) -> str:
+    """Build the system prompt for one generation chunk.
+
+    Note: `project_name` is intentionally NOT a parameter. It used to
+    appear as `for the project "{project_name}"` in the system prompt
+    but caused hallucinations (Fix 2 / PLDT SIPOC). The LLM has no
+    business knowing the project name during content generation —
+    project_id is needed only for image:// URL construction in
+    keystroke sections.
+    """
     block_specs = "\n\n".join(_block_spec(s, b) for s, b in blocks)
 
     steps_text = (
@@ -98,7 +125,10 @@ def build_chunk_system_prompt(
         )
 
     return f"""\
-You are a senior business analyst generating an Agent Design Document (ADD) for the project "{project_name}".
+You are a senior business analyst generating an Agent Design Document (ADD)
+for the process documented in the source material below. Use ONLY the
+transcript windows and screenshot references provided — do not infer the
+process from any external context.
 
 ## Source Material
 

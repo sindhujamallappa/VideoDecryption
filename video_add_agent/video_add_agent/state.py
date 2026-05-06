@@ -33,12 +33,29 @@ class ScreenshotCandidate(BaseModel):
 
 
 class Screenshot(BaseModel):
-    """A deduplicated screenshot — one representative per cluster, uploaded."""
+    """A deduplicated screenshot — one representative per cluster, uploaded.
+
+    `vision_analysis` is populated by dedupe_screenshots (Fix 4) when the
+    vision LLM call succeeds; downstream nodes (generate_sections,
+    score_quality) read it to ground keystroke descriptions and to flag
+    videos where most frames are meetings/slides rather than UI captures.
+    """
 
     timestamp: float
     phash: str
     bucket_path: str
     cluster_size: int  # how many candidates this rep stands in for (debug)
+    vision_analysis: dict | None = Field(
+        default=None,
+        description=(
+            "Optional vision-LLM classification: "
+            "{classification: 'screen_recording'|'meeting_frame'|'presentation_slide'|'other', "
+            "app_name?: str, ui_state?: str, visible_data?: str, likely_action?: str, "
+            "from_cache: bool}. Cached at "
+            "/projects/{projectId}/raw/image-{N}/vision.json so retries don't "
+            "re-spend tokens."
+        ),
+    )
 
 
 class AlignedStep(BaseModel):
@@ -101,6 +118,24 @@ class VideoAgentState(BaseModel):
         default=0.0,
         description="Fraction of audio seconds dropped (0.0–1.0). Logged per run.",
     )
+    transcript_mode: str = Field(
+        default="walkthrough",
+        description=(
+            "Filter classification: 'walkthrough' (UI actions dominate kept "
+            "windows), 'discussion' (process explanation dominates), 'combined' "
+            "(both kinds), 'unfiltered' (Mode C fallback — retention below floor, "
+            "passed full transcript through). Read by generate_sections's grounding "
+            "gate and by score_quality."
+        ),
+    )
+    transcript_retention_pct: float = Field(
+        default=0.0,
+        description=(
+            "Fraction of audio seconds retained (0.0–1.0). Inverse of "
+            "audio_drop_ratio for the filtered case; always 1.0 when "
+            "transcript_mode='unfiltered'."
+        ),
+    )
 
     # ── Vision / screenshots ───────────────────────────────────────────────
     keyframe_candidates: list[ScreenshotCandidate] = Field(
@@ -132,6 +167,31 @@ class VideoAgentState(BaseModel):
         default_factory=list,
         description="Constraint hints from validate_output. Non-empty + retries_left "
                     "→ validate_output routes back to generate_sections with these hints.",
+    )
+
+    # ── Grounding + quality (Fix 2 / Fix 5) ────────────────────────────────
+    insufficient_grounding: bool = Field(
+        default=False,
+        description=(
+            "True when generate_sections short-circuits because transcript "
+            "retention or analyzed-screenshot count is below floor. "
+            "persist_output still ships content, but every section is a "
+            "Gap marker so the failure surfaces in the review screen."
+        ),
+    )
+    insufficient_grounding_reason: str | None = Field(
+        default=None,
+        description="Human-readable explanation when insufficient_grounding=True.",
+    )
+    quality_report: dict | None = Field(
+        default=None,
+        description=(
+            "Output of the score_quality node: overall_score, grounded_blocks, "
+            "placeholder_blocks, suspected_hallucination_blocks, "
+            "hallucination_evidence, recommendation, transcript_coverage, "
+            "screenshot_coverage. Read by persist_output to prepend a summary "
+            "to content.md and to flag low-confidence runs in the senior's UI."
+        ),
     )
 
     # ── Persistence outputs ────────────────────────────────────────────────

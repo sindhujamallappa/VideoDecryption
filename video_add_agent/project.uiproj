@@ -1,0 +1,6 @@
+{
+  "ProjectType": "Agent",
+  "Name": "video-add-agent",
+  "Description": "UiPath LangGraph coded agent: video walkthrough \u2192 ADD (Agent Design Document)",
+  "MainFile": null
+}

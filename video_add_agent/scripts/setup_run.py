@@ -33,15 +33,15 @@ BUCKET_ID = 3733
 from datetime import datetime as _dt
 
 TARGET = {
-    "projectId": "0A1C5F57-723C-4B03-89DD-019DD82403C3",
-    "projectName": "Test_video_" + _dt.now().strftime("%m%d%Y%H%M%S"),
-    "stageId": "B6142596-B889-472F-A432-019DD8240FE1",
+    "projectId": "7c24244c-a3bf-4a82-a6f2-019dfc98aaf2",
+    "projectName": "UiBank_videoTesting_05062026",
+    "stageId": "98ba41d3-5a6e-4d23-bdd5-019dfc98b688",
     "templateId": "DE5B0911-F421-44ED-86AD-019DD48DFF02",
     "templateBucketDefinitionPath": "/templates/5e28b9f7-723d-4e30-bbd9-80f522f8e46c/definition.json",
-    "promptVersion": "2026-04-28-default-edited-2026-04-29",
+    "promptVersion": "2026-04-28-default-edited-2026-05-06",
 }
 
-LOCAL_VIDEO = Path(r"C:\Users\Sindhuja.M\Desktop\Projects\Initiative\Recording\UiBankProcessWalkthrough.mp4")
+LOCAL_VIDEO = Path(r"C:\Users\Sindhuja.M\Desktop\Projects\Initiative\Recording\PLDT_SIPOC_01.mp4")
 
 
 def _orch_headers() -> dict[str, str]:
@@ -102,7 +102,7 @@ with open(LOCAL_VIDEO, "rb") as fh:
         write_uri,
         content=fh,
         headers={"Content-Type": "video/mp4", "x-ms-blob-type": "BlockBlob"},
-        timeout=600,
+        timeout=1800,
     )
 up.raise_for_status()
 print(f"  uploaded {size:,} bytes")

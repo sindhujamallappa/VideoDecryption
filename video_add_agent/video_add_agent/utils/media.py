@@ -47,7 +47,7 @@ def extract_audio(video_path: Path, output_path: Optional[Path] = None) -> Path:
 def run_whisper(audio_path: Path, model_size: str = "base") -> list[WhisperSegment]:
     logger.info("run_whisper: loading model=%s", model_size)
     model = whisper.load_model(model_size)
-    result = model.transcribe(str(audio_path), verbose=False, fp16=False)
+    result = model.transcribe(str(audio_path), verbose=False, fp16=False, language="en")
     segments = [
         WhisperSegment(
             start=float(seg["start"]),

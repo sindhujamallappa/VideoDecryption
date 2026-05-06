@@ -41,7 +41,7 @@ def download_bytes(bucket_id: int, folder_id: int, path: str) -> bytes:
     )
     resp.raise_for_status()
     read_uri: str = resp.json()["Uri"]
-    download = httpx.get(read_uri, timeout=600, follow_redirects=True)
+    download = httpx.get(read_uri, timeout=1800, follow_redirects=True)
     download.raise_for_status()
     logger.debug("bucket download: %s (%d bytes)", path, len(download.content))
     return download.content
@@ -67,7 +67,7 @@ def upload_bytes(
         write_uri,
         content=content,
         headers={"Content-Type": mime_type, "x-ms-blob-type": "BlockBlob"},
-        timeout=600,
+        timeout=1800,
     )
     upload.raise_for_status()
     logger.debug("bucket upload: %s (%d bytes)", path, len(content))

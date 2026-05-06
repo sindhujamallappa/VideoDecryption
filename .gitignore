@@ -34,3 +34,8 @@ video_add_agent/tests/fixtures/sample_input.json
 
 # Daemon lock
 .video_add_agent_daemon.lock
+
+# UiPath SDK working directories (auth cache, build artifacts, local state)
+video_add_agent/.uipath/
+video_add_agent/__uipath/
+

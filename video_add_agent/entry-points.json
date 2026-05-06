@@ -1,0 +1,709 @@
+{
+    "$schema": "https://cloud.uipath.com/draft/2024-12/entry-point",
+    "$id": "entry-points.json",
+    "entryPoints": [
+        {
+            "filePath": "agent",
+            "uniqueId": "66f08660-ccd6-4718-b16e-5864ff7f9c9f",
+            "type": "agent",
+            "input": {
+                "type": "object",
+                "properties": {
+                    "project_id": {
+                        "title": "Project Id",
+                        "type": "string"
+                    },
+                    "stage_id": {
+                        "title": "Stage Id",
+                        "type": "string"
+                    },
+                    "project_name": {
+                        "title": "Project Name",
+                        "type": "string"
+                    },
+                    "source_filename": {
+                        "title": "Source Filename",
+                        "type": "string"
+                    },
+                    "video_artifact": {
+                        "additionalProperties": true,
+                        "title": "Video Artifact",
+                        "type": "object"
+                    },
+                    "bucket_context": {
+                        "additionalProperties": true,
+                        "title": "Bucket Context",
+                        "type": "object"
+                    },
+                    "active_add_template": {
+                        "additionalProperties": true,
+                        "title": "Active Add Template",
+                        "type": "object"
+                    },
+                    "raw_transcript": {
+                        "description": "Unfiltered Whisper output. Preserved for debugging/audit.",
+                        "items": {
+                            "description": "One Whisper segment with timestamps (seconds from video start) and text.",
+                            "properties": {
+                                "start": {
+                                    "title": "Start",
+                                    "type": "number"
+                                },
+                                "end": {
+                                    "title": "End",
+                                    "type": "number"
+                                },
+                                "text": {
+                                    "title": "Text",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "start",
+                                "end",
+                                "text"
+                            ],
+                            "title": "TranscriptSegment",
+                            "type": "object"
+                        },
+                        "title": "Raw Transcript",
+                        "type": "array"
+                    },
+                    "filtered_transcript": {
+                        "description": "Process-relevant subset after LLM relevance scoring.",
+                        "items": {
+                            "description": "One Whisper segment with timestamps (seconds from video start) and text.",
+                            "properties": {
+                                "start": {
+                                    "title": "Start",
+                                    "type": "number"
+                                },
+                                "end": {
+                                    "title": "End",
+                                    "type": "number"
+                                },
+                                "text": {
+                                    "title": "Text",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "start",
+                                "end",
+                                "text"
+                            ],
+                            "title": "TranscriptSegment",
+                            "type": "object"
+                        },
+                        "title": "Filtered Transcript",
+                        "type": "array"
+                    },
+                    "audio_drop_ratio": {
+                        "default": 0.0,
+                        "description": "Fraction of audio seconds dropped (0.0\u20131.0). Logged per run.",
+                        "title": "Audio Drop Ratio",
+                        "type": "number"
+                    },
+                    "keyframe_candidates": {
+                        "description": "Frames where consecutive pHash distance > KEYFRAME_THRESHOLD.",
+                        "items": {
+                            "description": "A frame surviving the consecutive-pHash-distance gate in extract_keyframes.\n\nNot yet uploaded; lives only on disk during the run. Dedupe selects one\nrepresentative per cluster and uploads it as a `Screenshot`.",
+                            "properties": {
+                                "timestamp": {
+                                    "title": "Timestamp",
+                                    "type": "number"
+                                },
+                                "phash": {
+                                    "title": "Phash",
+                                    "type": "string"
+                                },
+                                "frame_path": {
+                                    "title": "Frame Path",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "timestamp",
+                                "phash",
+                                "frame_path"
+                            ],
+                            "title": "ScreenshotCandidate",
+                            "type": "object"
+                        },
+                        "title": "Keyframe Candidates",
+                        "type": "array"
+                    },
+                    "screenshots": {
+                        "description": "Deduplicated, uploaded screenshots referenced by the ADD.",
+                        "items": {
+                            "description": "A deduplicated screenshot \u2014 one representative per cluster, uploaded.",
+                            "properties": {
+                                "timestamp": {
+                                    "title": "Timestamp",
+                                    "type": "number"
+                                },
+                                "phash": {
+                                    "title": "Phash",
+                                    "type": "string"
+                                },
+                                "bucket_path": {
+                                    "title": "Bucket Path",
+                                    "type": "string"
+                                },
+                                "cluster_size": {
+                                    "title": "Cluster Size",
+                                    "type": "integer"
+                                }
+                            },
+                            "required": [
+                                "timestamp",
+                                "phash",
+                                "bucket_path",
+                                "cluster_size"
+                            ],
+                            "title": "Screenshot",
+                            "type": "object"
+                        },
+                        "title": "Screenshots",
+                        "type": "array"
+                    },
+                    "aligned_steps": {
+                        "description": "Transcript windows paired with screenshot indices.",
+                        "items": {
+                            "description": "A unit of process timeline pairing a transcript window with screenshots.\n\nProduced by align_steps; consumed by generate_sections.",
+                            "properties": {
+                                "timestamp_start": {
+                                    "title": "Timestamp Start",
+                                    "type": "number"
+                                },
+                                "timestamp_end": {
+                                    "title": "Timestamp End",
+                                    "type": "number"
+                                },
+                                "transcript": {
+                                    "title": "Transcript",
+                                    "type": "string"
+                                },
+                                "screenshot_indices": {
+                                    "items": {
+                                        "type": "integer"
+                                    },
+                                    "title": "Screenshot Indices",
+                                    "type": "array"
+                                }
+                            },
+                            "required": [
+                                "timestamp_start",
+                                "timestamp_end",
+                                "transcript"
+                            ],
+                            "title": "AlignedStep",
+                            "type": "object"
+                        },
+                        "title": "Aligned Steps",
+                        "type": "array"
+                    },
+                    "coverage_gaps": {
+                        "description": "Non-empty + retries_left \u2192 coverage_check routes back to align_steps.",
+                        "items": {
+                            "description": "Region of filtered_transcript with no aligned screenshot inside tolerance.\n\nDrives the coverage_check \u2192 align_steps retry loop.",
+                            "properties": {
+                                "start": {
+                                    "title": "Start",
+                                    "type": "number"
+                                },
+                                "end": {
+                                    "title": "End",
+                                    "type": "number"
+                                },
+                                "reason": {
+                                    "title": "Reason",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "start",
+                                "end",
+                                "reason"
+                            ],
+                            "title": "CoverageGap",
+                            "type": "object"
+                        },
+                        "title": "Coverage Gaps",
+                        "type": "array"
+                    },
+                    "relax_factor": {
+                        "default": 0,
+                        "description": "Incremented per align_steps retry; widens matching tolerance.",
+                        "title": "Relax Factor",
+                        "type": "integer"
+                    },
+                    "sections": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "title": "Sections",
+                        "type": "object"
+                    },
+                    "validation_errors": {
+                        "description": "Constraint hints from validate_output. Non-empty + retries_left \u2192 validate_output routes back to generate_sections with these hints.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "title": "Validation Errors",
+                        "type": "array"
+                    },
+                    "content_json_path": {
+                        "type": "string"
+                    },
+                    "content_md_path": {
+                        "type": "string"
+                    },
+                    "transcript_path": {
+                        "type": "string"
+                    },
+                    "retry_counts": {
+                        "additionalProperties": {
+                            "type": "integer"
+                        },
+                        "description": "Per-loop retry count. Capped at MAX_RETRIES (set in graph.py).",
+                        "title": "Retry Counts",
+                        "type": "object"
+                    },
+                    "error": {
+                        "description": "Top-level error \u2014 its presence routes to handle_error.",
+                        "properties": {
+                            "message": {
+                                "title": "Message",
+                                "type": "string"
+                            },
+                            "failed_node": {
+                                "title": "Failed Node",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "message",
+                            "failed_node"
+                        ],
+                        "title": "ErrorInfo",
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "project_id",
+                    "stage_id",
+                    "project_name",
+                    "source_filename",
+                    "video_artifact",
+                    "bucket_context",
+                    "active_add_template"
+                ]
+            },
+            "output": {
+                "type": "object",
+                "properties": {
+                    "project_id": {
+                        "title": "Project Id",
+                        "type": "string"
+                    },
+                    "stage_id": {
+                        "title": "Stage Id",
+                        "type": "string"
+                    },
+                    "project_name": {
+                        "title": "Project Name",
+                        "type": "string"
+                    },
+                    "source_filename": {
+                        "title": "Source Filename",
+                        "type": "string"
+                    },
+                    "video_artifact": {
+                        "additionalProperties": true,
+                        "title": "Video Artifact",
+                        "type": "object"
+                    },
+                    "bucket_context": {
+                        "additionalProperties": true,
+                        "title": "Bucket Context",
+                        "type": "object"
+                    },
+                    "active_add_template": {
+                        "additionalProperties": true,
+                        "title": "Active Add Template",
+                        "type": "object"
+                    },
+                    "raw_transcript": {
+                        "description": "Unfiltered Whisper output. Preserved for debugging/audit.",
+                        "items": {
+                            "description": "One Whisper segment with timestamps (seconds from video start) and text.",
+                            "properties": {
+                                "start": {
+                                    "title": "Start",
+                                    "type": "number"
+                                },
+                                "end": {
+                                    "title": "End",
+                                    "type": "number"
+                                },
+                                "text": {
+                                    "title": "Text",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "start",
+                                "end",
+                                "text"
+                            ],
+                            "title": "TranscriptSegment",
+                            "type": "object"
+                        },
+                        "title": "Raw Transcript",
+                        "type": "array"
+                    },
+                    "filtered_transcript": {
+                        "description": "Process-relevant subset after LLM relevance scoring.",
+                        "items": {
+                            "description": "One Whisper segment with timestamps (seconds from video start) and text.",
+                            "properties": {
+                                "start": {
+                                    "title": "Start",
+                                    "type": "number"
+                                },
+                                "end": {
+                                    "title": "End",
+                                    "type": "number"
+                                },
+                                "text": {
+                                    "title": "Text",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "start",
+                                "end",
+                                "text"
+                            ],
+                            "title": "TranscriptSegment",
+                            "type": "object"
+                        },
+                        "title": "Filtered Transcript",
+                        "type": "array"
+                    },
+                    "audio_drop_ratio": {
+                        "default": 0.0,
+                        "description": "Fraction of audio seconds dropped (0.0\u20131.0). Logged per run.",
+                        "title": "Audio Drop Ratio",
+                        "type": "number"
+                    },
+                    "keyframe_candidates": {
+                        "description": "Frames where consecutive pHash distance > KEYFRAME_THRESHOLD.",
+                        "items": {
+                            "description": "A frame surviving the consecutive-pHash-distance gate in extract_keyframes.\n\nNot yet uploaded; lives only on disk during the run. Dedupe selects one\nrepresentative per cluster and uploads it as a `Screenshot`.",
+                            "properties": {
+                                "timestamp": {
+                                    "title": "Timestamp",
+                                    "type": "number"
+                                },
+                                "phash": {
+                                    "title": "Phash",
+                                    "type": "string"
+                                },
+                                "frame_path": {
+                                    "title": "Frame Path",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "timestamp",
+                                "phash",
+                                "frame_path"
+                            ],
+                            "title": "ScreenshotCandidate",
+                            "type": "object"
+                        },
+                        "title": "Keyframe Candidates",
+                        "type": "array"
+                    },
+                    "screenshots": {
+                        "description": "Deduplicated, uploaded screenshots referenced by the ADD.",
+                        "items": {
+                            "description": "A deduplicated screenshot \u2014 one representative per cluster, uploaded.",
+                            "properties": {
+                                "timestamp": {
+                                    "title": "Timestamp",
+                                    "type": "number"
+                                },
+                                "phash": {
+                                    "title": "Phash",
+                                    "type": "string"
+                                },
+                                "bucket_path": {
+                                    "title": "Bucket Path",
+                                    "type": "string"
+                                },
+                                "cluster_size": {
+                                    "title": "Cluster Size",
+                                    "type": "integer"
+                                }
+                            },
+                            "required": [
+                                "timestamp",
+                                "phash",
+                                "bucket_path",
+                                "cluster_size"
+                            ],
+                            "title": "Screenshot",
+                            "type": "object"
+                        },
+                        "title": "Screenshots",
+                        "type": "array"
+                    },
+                    "aligned_steps": {
+                        "description": "Transcript windows paired with screenshot indices.",
+                        "items": {
+                            "description": "A unit of process timeline pairing a transcript window with screenshots.\n\nProduced by align_steps; consumed by generate_sections.",
+                            "properties": {
+                                "timestamp_start": {
+                                    "title": "Timestamp Start",
+                                    "type": "number"
+                                },
+                                "timestamp_end": {
+                                    "title": "Timestamp End",
+                                    "type": "number"
+                                },
+                                "transcript": {
+                                    "title": "Transcript",
+                                    "type": "string"
+                                },
+                                "screenshot_indices": {
+                                    "items": {
+                                        "type": "integer"
+                                    },
+                                    "title": "Screenshot Indices",
+                                    "type": "array"
+                                }
+                            },
+                            "required": [
+                                "timestamp_start",
+                                "timestamp_end",
+                                "transcript"
+                            ],
+                            "title": "AlignedStep",
+                            "type": "object"
+                        },
+                        "title": "Aligned Steps",
+                        "type": "array"
+                    },
+                    "coverage_gaps": {
+                        "description": "Non-empty + retries_left \u2192 coverage_check routes back to align_steps.",
+                        "items": {
+                            "description": "Region of filtered_transcript with no aligned screenshot inside tolerance.\n\nDrives the coverage_check \u2192 align_steps retry loop.",
+                            "properties": {
+                                "start": {
+                                    "title": "Start",
+                                    "type": "number"
+                                },
+                                "end": {
+                                    "title": "End",
+                                    "type": "number"
+                                },
+                                "reason": {
+                                    "title": "Reason",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "start",
+                                "end",
+                                "reason"
+                            ],
+                            "title": "CoverageGap",
+                            "type": "object"
+                        },
+                        "title": "Coverage Gaps",
+                        "type": "array"
+                    },
+                    "relax_factor": {
+                        "default": 0,
+                        "description": "Incremented per align_steps retry; widens matching tolerance.",
+                        "title": "Relax Factor",
+                        "type": "integer"
+                    },
+                    "sections": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "title": "Sections",
+                        "type": "object"
+                    },
+                    "validation_errors": {
+                        "description": "Constraint hints from validate_output. Non-empty + retries_left \u2192 validate_output routes back to generate_sections with these hints.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "title": "Validation Errors",
+                        "type": "array"
+                    },
+                    "content_json_path": {
+                        "type": "string"
+                    },
+                    "content_md_path": {
+                        "type": "string"
+                    },
+                    "transcript_path": {
+                        "type": "string"
+                    },
+                    "retry_counts": {
+                        "additionalProperties": {
+                            "type": "integer"
+                        },
+                        "description": "Per-loop retry count. Capped at MAX_RETRIES (set in graph.py).",
+                        "title": "Retry Counts",
+                        "type": "object"
+                    },
+                    "error": {
+                        "description": "Top-level error \u2014 its presence routes to handle_error.",
+                        "properties": {
+                            "message": {
+                                "title": "Message",
+                                "type": "string"
+                            },
+                            "failed_node": {
+                                "title": "Failed Node",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "message",
+                            "failed_node"
+                        ],
+                        "title": "ErrorInfo",
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "project_id",
+                    "stage_id",
+                    "project_name",
+                    "source_filename",
+                    "video_artifact",
+                    "bucket_context",
+                    "active_add_template"
+                ]
+            },
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "__start__",
+                        "name": "__start__",
+                        "type": "__start__",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "validate_artifact",
+                        "name": "validate_artifact",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "transcribe_raw",
+                        "name": "transcribe_raw",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "filter_transcript",
+                        "name": "filter_transcript",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "screenshot_pipeline",
+                        "name": "screenshot_pipeline",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "align_steps",
+                        "name": "align_steps",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "coverage_check",
+                        "name": "coverage_check",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "generate_sections",
+                        "name": "generate_sections",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "validate_output",
+                        "name": "validate_output",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "persist_output",
+                        "name": "persist_output",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "handle_error",
+                        "name": "handle_error",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": {}
+                    },
+                    {
+                        "id": "__end__",
+                        "name": "__end__",
+                        "type": "__end__",
+                        "subgraph": null,
+                        "metadata": {}
+                    }
+                ],
+                "edges": [
+                    {
+                        "source": "__start__",
+                        "target": "validate_artifact",
+                        "label": null
+                    },
+                    {
+                        "source": "validate_artifact",
+                        "target": "__end__",
+                        "label": null
+                    },
+                    {
+                        "source": "filter_transcript",
+                        "target": "align_steps",
+                        "label": null
+                    },
+                    {
+                        "source": "screenshot_pipeline",
+                        "target": "align_steps",
+                        "label": null
+                    }
+                ]
+            }
+        }
+    ]
+}

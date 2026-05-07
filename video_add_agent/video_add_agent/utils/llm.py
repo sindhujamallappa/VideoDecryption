@@ -16,6 +16,7 @@ Required headers:
 """
 from __future__ import annotations
 
+import base64
 import logging
 import os
 from typing import Any
@@ -74,6 +75,23 @@ async def call_llm(llm: ChatOpenAI, system: str, user: str) -> str:
     return content
 
 
+def build_image_block(image_bytes: bytes, mime: str = "image/jpeg") -> dict[str, Any]:
+    """Image content block in the shape the UiPath LLM Gateway accepts.
+
+    The normalized API for Anthropic models takes a hybrid shape: the outer
+    ``type`` must be the media type itself (one of image/png, image/jpeg,
+    image/gif, image/webp — bare ``image`` is rejected), but the payload is
+    an OpenAI-style ``image_url`` data URL rather than an Anthropic
+    ``source`` object. Both pure-Anthropic and pure-OpenAI shapes are
+    rejected (HTTP 400 / 500) — see scripts/smoke_vision.py for the probe.
+    """
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    return {
+        "type": mime,
+        "image_url": {"url": f"data:{mime};base64,{b64}"},
+    }
+
+
 @retry(**_RETRY)
 async def call_llm_multimodal(
     llm: ChatOpenAI,
@@ -81,7 +99,10 @@ async def call_llm_multimodal(
     text: str,
     images: list[dict[str, Any]],
 ) -> str:
-    """Send text + base64 image blocks to a vision-capable model via the gateway."""
+    """Send text + image content blocks to a vision-capable model via the gateway.
+
+    Each entry in ``images`` should be the dict returned by ``build_image_block``.
+    """
     content: list[dict[str, Any]] = [{"type": "text", "text": text}, *images]
     messages = [SystemMessage(content=system), HumanMessage(content=content)]
     result = await llm.ainvoke(messages)

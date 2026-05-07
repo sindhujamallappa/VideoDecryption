@@ -100,6 +100,53 @@ def test_missing_frame_file_skips_cluster(sample_state, monkeypatch):
     assert result["screenshots"] == []
 
 
+def test_cluster_count_capped_when_exceeds_max(sample_state, monkeypatch, tmp_path):
+    """When cluster count exceeds MAX_CLUSTERS, the node downsamples
+    chronologically — keeping evenly spaced representatives across the
+    full timeline rather than concentrating around any one region."""
+    # Pairwise-distinct pHashes (Hamming distance ≥ 8, well above
+    # DEDUPE_THRESHOLD=5) so each frame becomes its own cluster.
+    distinct_phashes = [
+        "0000000000000000",
+        "00000000000000ff",
+        "000000000000ff00",
+        "0000000000ff0000",
+        "00000000ff000000",
+        "000000ff00000000",
+        "0000ff0000000000",
+        "00ff000000000000",
+        "ff00000000000000",
+        "ffff000000000000",
+    ]
+    frames: list[ScreenshotCandidate] = []
+    for i, h in enumerate(distinct_phashes):
+        p = tmp_path / f"f{i}.jpg"
+        p.write_bytes(b"\xff\xd8\xff\xd9")
+        frames.append(ScreenshotCandidate(timestamp=float(i), phash=h, frame_path=str(p)))
+    sample_state.keyframe_candidates = frames
+
+    # Cap at 5 — expect uniform stride of 2 across timestamps 0..9.
+    monkeypatch.setattr(
+        "video_add_agent.nodes.dedupe_screenshots.MAX_CLUSTERS", 5
+    )
+
+    uploads: list[dict] = []
+    monkeypatch.setattr(
+        "video_add_agent.nodes.dedupe_screenshots.upload_bytes",
+        lambda **kw: uploads.append(kw),
+    )
+    _mock_vision(monkeypatch)
+
+    result = dedupe_screenshots_node(sample_state)
+    assert "error" not in result
+    assert len(result["screenshots"]) == 5
+
+    # Time-uniform: with 10 clusters and cap=5, step=2 → keep
+    # timestamps at indices 0, 2, 4, 6, 8.
+    kept_timestamps = sorted(s.timestamp for s in result["screenshots"])
+    assert kept_timestamps == [0.0, 2.0, 4.0, 6.0, 8.0]
+
+
 def test_vision_cache_hit_skips_llm_call(sample_state, monkeypatch, tmp_path):
     """When the vision.json sibling already exists in bucket, the cached
     classification is returned and call_llm_multimodal is NOT invoked."""

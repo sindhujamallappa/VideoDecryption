@@ -17,9 +17,9 @@ re-spend tokens. The classification feeds into score_quality (Fix 5).
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -27,12 +27,23 @@ from video_add_agent.models.input import BucketContext
 from video_add_agent.state import ErrorInfo, Screenshot, VideoAgentState
 from video_add_agent.utils.bucket import download_bytes, upload_bytes
 from video_add_agent.utils.keyframes import cluster_by_hash, pick_representative
-from video_add_agent.utils.llm import build_llm, call_llm_multimodal, strip_json_fence
+from video_add_agent.utils.llm import (
+    build_image_block,
+    build_llm,
+    call_llm_multimodal,
+    strip_json_fence,
+)
 
 logger = logging.getLogger(__name__)
 
 DEDUPE_THRESHOLD = 5
 _VISION_MODEL = "anthropic.claude-opus-4-7"
+
+# Both env-overridable so the published process can be tuned in
+# Orchestrator without a republish. Defaults sized to fit a 60-min
+# serverless tier on a 3-hour video; lower if running on a tighter cap.
+MAX_CLUSTERS = int(os.environ.get("VIDEO_AGENT_MAX_CLUSTERS", "80"))
+VISION_CONCURRENCY = int(os.environ.get("VIDEO_AGENT_VISION_CONCURRENCY", "8"))
 
 _VISION_SYSTEM = """\
 You are analysing a single frame extracted from a process-walkthrough video.
@@ -78,13 +89,7 @@ async def _classify_one_screenshot(
         # cache miss — proceed
         pass
 
-    b64 = base64.b64encode(image_bytes).decode("ascii")
-    images = [
-        {
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-        }
-    ]
+    images = [build_image_block(image_bytes, mime="image/jpeg")]
     try:
         raw = await call_llm_multimodal(
             llm,
@@ -141,6 +146,21 @@ def dedupe_screenshots_node(state: VideoAgentState) -> dict:
             len(candidates), len(clusters),
         )
 
+        # Time-uniform downsampling. For long meetings cluster_by_hash can
+        # return 200+ clusters; capping bounds vision-LLM cost so the job
+        # fits a serverless timeout. Chronological spacing preserves coverage
+        # across the meeting flow rather than concentrating around long-
+        # displayed UI states (size-based selection would skew that way).
+        total_clusters = len(clusters)
+        if total_clusters > MAX_CLUSTERS:
+            clusters = sorted(clusters, key=lambda c: c[0].timestamp)
+            step = total_clusters / MAX_CLUSTERS
+            clusters = [clusters[int(i * step)] for i in range(MAX_CLUSTERS)]
+            logger.info(
+                "dedupe_screenshots: capped %d → %d clusters (time-uniform downsample)",
+                total_clusters, MAX_CLUSTERS,
+            )
+
         midpoints = [
             (s.start + s.end) / 2.0 for s in state.filtered_transcript
         ] or None
@@ -186,15 +206,21 @@ def dedupe_screenshots_node(state: VideoAgentState) -> dict:
                 for idx, _, _, _ in upload_records
             ]
 
-            async def _gather_vision() -> list[Any]:
-                tasks = [
-                    _classify_one_screenshot(
+            sem = asyncio.Semaphore(VISION_CONCURRENCY)
+
+            async def _bounded(content_bytes: bytes, vision_path: str) -> Any:
+                async with sem:
+                    return await _classify_one_screenshot(
                         llm,
-                        content,
+                        content_bytes,
                         bucket_ctx.bucketId,
                         bucket_ctx.folderId,
                         vision_path,
                     )
+
+            async def _gather_vision() -> list[Any]:
+                tasks = [
+                    _bounded(content, vision_path)
                     for (_, _, content, _), vision_path in zip(
                         upload_records, vision_paths
                     )
